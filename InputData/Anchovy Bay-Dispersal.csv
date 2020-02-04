@@ -1,0 +1,13 @@
+,Group name,Base dispersal rate,Relative dispersal in bad habitat (proportion),Rel. vul to pred. in bad hab.,Rel. move speed to cell fitness,Is advected (True/False),Is migratory (True/False),Barrier avoidance weight,Mig. in area movement
+1,Whales,300,5,2,0,0,0,,
+2,Seals,300,5,2,0,0,0,,
+3,Cod,150,5,2,0,0,0,,
+4,Whiting,100,5,2,0,0,0,,
+5,Mackerel juv,10,5,2,0,0,0,,
+6,Mackerel ad,10,5,2,0,0,0,,
+7,Anchovy,100,5,2,0,0,0,,
+8,Shrimp,10,5,2,0,0,0,,
+9,Benthos,10,5,2,0,0,0,,
+10,Zooplankton,300,5,2,0,0,0,,
+11,Phytoplankton,300,5,2,0,0,0,,
+12,Detritus,5,5,2,0,0,0,,
