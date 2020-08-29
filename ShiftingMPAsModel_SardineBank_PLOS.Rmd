@@ -1,0 +1,871 @@
+---
+title: "Shifting Seas, Shifting Boundaries: Dynamic Marine Protected Area designs for a Changing Climate"
+author: "Tim Cashion^1^ *, Tu Nguyen^2^, Talya ten Brink^3^ ^, Anne Mook^4^ ^, Juliano Palacios-Abrantes^5^ ^, Sarah M. Roberts^6^ ^"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  #bookdown::html_document2
+  bookdown::word_document2
+bibliography: MyCollection.bib
+always_allow_html: yes
+biblio-style: "apalike"
+---
+
+## Affiliations 
+1. Fisheries Economics Research Unit, Institute for the Oceans and Fisheries, University of British Columbia, Vancouver, V6T 1Z4, Canada
+2. Department of Applied Economics, Oregon State University, Corvallis, OR 97330 USA
+3. Greater Atlantic Regional Fisheries Office, National Marine Fisheries Service, National Oceanic and Atmospheric Administration, Gloucester, MA 01930 USA
+4. Department of Sociology & Anthropology, Nazarbayev University, Astana, Kazakhstan
+5. Changing Oceans Research Unit, Institute for the Oceans and Fisheries, University of British Columbia, Vancouver, V6T 1Z4, Canada
+6. Marine Geospatial Ecology Lab, Nicholas School of the Environment and Earth Sciences, Duke University, Durham, NC 27708, USA
+
+*Corresponding author. t.cashion@oceans.ubc.ca
+^ These authors contributed equally. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning= F, message=F)
+
+ipak <- function(pkg){
+  new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+  if (length(new.pkg)) 
+    install.packages(new.pkg, dependencies = TRUE)
+  sapply(pkg, require, character.only = TRUE)
+}
+packages <- c(
+  "tidyverse", #data manipulation and plotting
+  "wesanderson", #Awesome colour schemes
+  "rmarkdown", #rmarkdown document formatting and functions
+  "knitr" #for printing tables with 'kable' 
+)
+ipak(packages)
+source("./R/end_of_century_average.R")
+source("./R/spatial_maps_segment_plots.R")
+```
+
+```{r data, echo=FALSE, warning=FALSE, message=FALSE}
+#For data cleaning files, see R script of 'OutputDataCleaning.R' 
+mpa_labels <- tibble(design = c("MPA_Horiz_Static", 
+                                "MPA_Square_Static", 
+                                "MPA_Square_Shifting", 
+                                "MPA_Vert_Static", 
+                                "MPA_Network_Static", 
+                                "MPA_Network_Shifting", 
+                                "NoMPA"),
+                     mpa_label = c("Horizontal Static", 
+                                "Square Static", 
+                                "Square Shifting", 
+                                "Vertical Static", 
+                                "Network Static", 
+                                "Network Shifting", 
+                                "No MPA"))
+
+average_data <- read_csv("/nfs/mpasandclimatechange-data/Data/AnchovyBay/DataOutputs/AnnualAverageData_tidy.csv")
+average_data <- average_data %>% 
+  rename(year=Year) %>% 
+  mutate(year=year-1) %>% 
+  filter(scenario==10)
+mpa_data <- read_csv("/nfs/mpasandclimatechange-data/Data/AnchovyBay/DataOutputs/MPAData_tidy.csv")
+mpa_data <- mpa_data %>%
+  mutate(scenario = gsub(scenario, pattern="MPA Scenario ", replacement = "")) %>% 
+  mutate(scenario = gsub(scenario, pattern=" Percent", replacement = "")) %>% 
+  mutate(scenario = as.numeric(scenario)) %>% 
+  filter(scenario == 10)
+
+spatial_data <- read_csv("/nfs/mpasandclimatechange-data/Data/AnchovyBay/DataOutputs/SpatialData_tidy_10.csv")
+price_data <- read_csv("/nfs/mpasandclimatechange-data/Data/AnchovyBay/DataOutputs/PriceData_tidy.csv")
+
+price_data$elasticity[price_data$elasticity>=2] <- 1.99
+
+port_data <- read_csv("/nfs/mpasandclimatechange-data/Data/AnchovyBay/DataOutputs/PortData_tidy.csv")
+
+average_fleet_data <- average_data %>% 
+  filter(grepl(group, pattern="\\|"))
+
+#Price elasticity:
+orig_catch <- average_fleet_data %>% 
+  filter(year==1 & RCP=="RCP2.6" & design=="NoMPA" & scenario=="10") %>% 
+  select(group, value) %>% 
+  rename(orig_catch = value)
+average_fleet_data <- average_fleet_data %>% 
+  left_join(price_data) %>% 
+  left_join(orig_catch) %>% 
+  rename(catch=value) %>% 
+  mutate(PercChange = ((catch-orig_catch)/orig_catch))
+
+average_fleet_data$PercChange[average_fleet_data$PercChange>=0.35] <- 0.35
+average_fleet_data$PercChange[average_fleet_data$PercChange<=-0.35] <- -0.35
+
+
+average_fleet_data <- average_fleet_data %>% 
+  mutate(CurrentPrice = Price*(((-1*elasticity)*PercChange)+1))  %>% 
+  mutate(value=CurrentPrice*catch)
+
+elasticity_adjusted_prices <- average_fleet_data %>% 
+  select(year, fg, design, RCP, CurrentPrice)
+
+spatial_catch_data <- spatial_data %>% 
+  filter(type=="Catch") %>% 
+  left_join(elasticity_adjusted_prices) %>%
+  rename(catch=value) %>% 
+  mutate(value=CurrentPrice*catch)
+
+mpa_legend <- tibble(mpa=c(0,1,2), MPA=c("Outside", "Inside", "Adjacent"))
+#Be careful with plotting the spatial data. To achieve the originally designed visual version in plots, the row_num (i.e. the y-axis) needs to be reversed as the original layout goes from 1 at the top to 20 at the bottom. Plots by default have higher values at the top and lower values at the bottom (i.e., the opposite of our grid layout). 
+
+```
+
+```{r plot-design}
+
+zissou_continuous <- wes_palette(name = "Zissou1", n=100, type = c("continuous"))
+zissou_discrete_3 <- wes_palette(name = "Zissou1")[c(1,3,5)]
+theme_set(theme_classic())
+zissou_blue <- wes_palette("Zissou1")[1]
+zissou_red <- wes_palette("Zissou1")[5]
+
+
+```
+
+
+# Abstract 
+Marine protected areas (MPAs) are valuable tools for marine conservation that aim to limit human impacts on marine systems and protect valuable species or habitats. However, as species distributions shift due to ocean warming, acidification, and oxygen depletion from climate change, the areas originally designated under MPAs may bear little resemblance to their past state. Different approaches have been suggested for coping with species on the move in conservation. Here, we test the effectiveness of different MPA designs, including dynamic, network, and different directional orientations, on protecting shifting species under climate change through ecosystem modeling in a theoretical ecosystem. Our findings suggest that dynamic MPAs may benefit some species (e.g., whiting and anchovy) and fishing fleets, and these benefits can inform the design or adaptation of MPAs worldwide. In addition, we find that it is important to design MPAs with specific goals and to account for the effects of released fishing pressure and species interactions in MPA design. 
+
+Keywords: climate change, Ecospace, Ecopath, ecosystem modeling, marine protected areas, marine spatial planning
+
+# Introduction
+
+Marine protected areas (MPAs) are among the most popular types of marine spatial planning strategies to protect species and habitats from harmful human activities [@song_institutional_2017]. MPA designs vary in shape and size, with some incorporating connected networks of MPAs. Positive social-ecological impacts of MPAs within their boundaries include increasing fish biomass, density, and size, maintaining species diversity, supporting food production, and providing aesthetic, recreational, and spiritual values [@lester_biological_2009; @lester_evaluating_2013]. Some of these benefits have been shown to also occur outside of the MPAs boundaries, with the spillover (i.e., positive net migration of fish from no-take areas to the surrounding areas outside the MPA) of adult fish biomass occurring in waters up to two kilometers away, subsequently increasing fisheries yield in surrounding areas [@halpern_spillover_2009]. These potential fisheries benefits can lead to increased efficiency of fishing at the edges of MPAs due to higher concentrations of fish biomass, partially compensating for the lost fisheries revenue from the closed area. However, not all of these benefits are shared equitably and often lead to positive outcomes for some users and negative outcomes for others [@wielgus_assessing_2008; @davies_large_2017; @wabnitz_ecotourism_2018], necessitating a balance of trade-offs between different users. 
+
+There is vast evidence that marine species are shifting their distributions due to climate change around the world [@poloczanska_responses_2016; @perry_climate_2005; @pinsky_marine_2013; @baudron_changing_2020; @erauskin-extramiana_large-scale_2019].  Moreover, modeling exercises suggest such shifts will continue [@cheung_projecting_2009; @cheung_future_2018; @gaines_improved_2018; @barange_impacts_2014; @pecl_biodiversity_2017], even with strong mitigation of greenhouse gases such as under the Paris Agreement [@cheung_large_2016]. Given that most MPAs are static in location and boundaries, MPAs may lose their function to protect specific habitats or species on the move under climate change [@bruno_climate_2018; @maxwell_mobile_2020], which undermines the future benefits of MPAs and their ability to meet conservation goals [@fredston-hermann_biogeographic_2018]. Thus, management needs to explicitly consider climate change to protect species with shifting distributions [@davies_large_2017].
+
+This paper responds to gaps in the MPA literature by examining the biological and economic effects of varied MPA designs on protecting functional groups as they shift their distributions under climate change [@fredston-hermann_biogeographic_2018; @gruss_consequences_2011; @kleisner_effects_2016]. While this has been identified as an area of future research, the authors are not aware of any modeling study on the effects of climate change on MPAs. Our aim was to explore the theoretical benefits of dynamic MPAs to respond to the effects of climate change through an ecosystem modeling approach. We evaluated these benefits in terms of three different outcomes: biomass, catch, and fisheries revenues. These outcomes are highly relevant concerns for the measures of success of the MPA [@gill_capacity_2017] and for a main group of resource users adjacent to many MPAs [@gill_social_2019].
+
+Therefore, this study has two central aims: i) to determine how the outcomes of MPAs vary under climate change, and ii) to evaluate how different MPA designs (static vs. dynamic, network vs. single) perform under climate change. 
+
+# Methods
+To undertake this analysis, we used a spatially explicit model in Ecospace, the spatial form of the ecosystem modeling software Ecopath with Ecosim  [@walters_ecospace:_1999]. Ecospace models begin with the parameterization of a static mass-balanced model (Ecopath), modified by a temporal scenario (Ecosim), and finally spatialized to a certain habitat (Ecospace). This software allows the exploration of different MPA management strategies that incorporate ecological and social-economic criteria [@beattie_model_2008]. We adapted the theoretical ecosystem of 'Anchovy Bay' for our analysis [@christensen_tutorial_2018]. This choice was made from the finding that there are few developed Ecospace models due to high data requirements [@colleter_global_2015]. To incorporate the changing nature of the ecosystems, we addressed our proposed MPAs designs under forecasted climate change. This simulation lends itself well to a theoretical ecosystem where we can ignore the uncertainty of ecosystem model parameterization in favour of separating out the effects of climate change and MPA design. See supplementary materials for a full specification of the model. We parameterized the model to represent the Anchovy Bay ecosystem in 2000, and allowed the model to run for 100 years (between 2000 and 2100). We calculated mean biomass, catch and fisheries revenue considering the last 10 years of the projection (between 2090 and 2100). 
+
+We focus on two main MPA designs that have been identified as potential solutions to the conservation of species on the move: dynamic and network MPAs [@song_institutional_2017; @maxwell_mobile_2020].  We test whether MPAs continue to have benefits under climate change (under 4 $\^circ$C of warming), or whether the negative effects of climate change can be stemmed by certain MPA designs (Fig 1).
+
+![Fig 1. Conceptual figure of methods used for this study. Warming scenarios and MPA designs were fitted to a spatialized ecosystem model. The ecosystem model includes predator-prey relationships between functional groups including fishing fleets. This model incorporated price elasticity when estimating fishing fleet dynamics. The outputs of the model are abundance, catch, and fisheries revenue in each time step for each functional group and fishing fleet. Warming scenario visual obtained from IPCC, 2013.](./methodsfigure.png)
+
+## Model Design
+
+The baseline model parameters and food web structure of Anchovy Bay Ecospace model were adopted from Christensen [-@christensen_tutorial_2018]. The spatial layout of the ecosystem is a 20 by 20 grid (400 total cells) where each cell represents a 20 km by 20 km square. This model is made up of 11 functional groups, one of which is multi-stanza (has two age classes: juveniles and adults; Table \@ref(tab:ecopath-table-simple)). The input parameters of the Ecopath model can be found in Table \@ref(tab:ecopath) and the diet matrix in Table \@ref(tab:diets). Of the 11 functional groups, six are targeted by fishing fleets. There are five fishing fleets that correspond to these targeted groups that are presented in the results. The functional groups' populations are distributed based on the presence of prey, and their habitat preferences which in this model are governed solely by temperature. Different functional groups are more able to move across the ecosystem based on their physical ability to travel large distances and thus the results of our modeling are specific to a functional groups' ability to move as well as temperature preferences. The model we used was adapted from the theoretical ecosystem due to the theoretical nature of our modeling to test our hypotheses, and due to a lack of data availability for the creation of spatially explicit ecosystem models that can incorporate climate change effects. 
+
+Each Ecopath model starts in a mass-balanced steady-state. Simulating the ecosystem over time allows the functional groups to expand and decline based on their suitability to the ecosystem and the relative abundance of their prey and predators. Thus, our model takes into account predator-prey interactions over space and time. In addition to the ecological dynamics, fishing effort is spatially distributed based on a cost model that incorporates distance from the fishing port and the price for their target organism where fleets are dynamically driven to maximize their profits, and limited in expansion and contraction based on capital (de)investment rates. 
+
+The model was adapted from the original in the following ways: climate change impacts through forcing functions, a north-south temperature gradient, and the removal of habitat features to not constrain functional groups. The remaining predator-prey dynamics between functional groups (including fisheries) were maintained.
+
+```{r ecopath-table-simple}
+options(knitr.kable.NA = '')
+ecopath_simple <- read_csv("./InputData/ecopath_simple_table.csv")
+colnames(ecopath_simple) <- str_to_sentence(colnames(ecopath_simple))
+kable(ecopath_simple, caption = "Functional groups and corresponding fishing fleets included in the ecosystem model.")
+```
+
+This model ecosystem is then forecast through time for our study period (100 years). The model was constructed to compare the results of different MPA designs under climate change. We adopted an approximations for climate change effects on sea surface temperature based on the results of the Intergovernmental Panel on Climate Change (IPCC) estimates [@ipcc_climate_2013]. This broadly encompasses a 4$\^circ$C change in sea surface temperature by the end of the 21^st^ century (2100). We implemented this in the ecosystem model through forcing functions that were applied to consumers and producers and were assumed to affect their ability to find prey (i.e., search rate). This is a common method for implementing climate change effects in Ecosim models to influence how well a functional group performs based on their temperature preferences. The result of modifying the search rate of a functional group by temperature preference is that as temperature moves farther away from a functional group's optimal range, they are less effective at finding prey and thus more vulnerable to predation. 
+
+We defined environmental response parameters for species based on depth and temperature preferences. We then applied the forcing function of changes to sea surface temperature to the functional group specific response for the appropriate climate change scenario. To mimic a temperature gradient at a small scale (assuming a Northern hemisphere ecosystem), we created a temperature gradient in the spatial ecosystem with colder temperatures in the 'Northern' cells and warmer temperatures in the 'Southern' cells. Therefore, functional groups can relocate amongst this spatial grid based on their thermal preferences. Functional groups' ability to move between cells and the distance they can move is termed 'dispersal' in this modeling platform, and the dispersal values were used from a previous study that covered most of the functional groups in this ecosystem [@beattie_marine_2001]. 
+
+To estimate fisheries revenues, the model uses the first-sale prices for different functional groups multiplied by their catch amount in each timestep. The default price values from the original Ecopath model were used [@christensen_tutorial_2018] (Table \@ref(tab:price)). The price elasticity of supply, the response of prices to increases or decreases in supply, was incorporated into the models based on known price elasticities of similar species/commercial groups. The values were sourced from a synthesis of same product elasticity [@asche_demand_2005] and an average was taken where multiple values were reported for a functional group (Table \@ref(tab:price-elasticity)). This was applied within the ecosystem model so that fishing effort behaviour would respond to changes in prices and thus  profitability of their fishing operations. We believe this allows a more realistic response of fishers changing profits of fishing when coupled with distance-based fishing costs.  
+
+More details on the model parameterization can be found in the supplemental materials. We used this Ecospace scenario with no MPA as the baseline scenario for all simulations. Then, we applied the described scenarios (below) with the alternative climate change effects and MPA designs. 
+
+## Scenarios  
+
+### MPA designs
+We then developed six MPA designs, four static MPAs (square, narrow vertical, narrow horizontal and network) to compare with dynamic MPA designs (Square Shifting and Network Shifting) under climate change. (Fig \@ref(fig:static-mpa-visuals)). The two dynamic MPAs have the same dimensions as their static counterparts, while moving by one cell height (20 km) every 20 years (Fig \@ref(fig:shifting-mpa-visuals)). This rate of movement may be conservative as current estimates are between 15.5 km/decade and 25.6km/decade for low and high-emissions scenarios, respectively [@jones_multi-model_2015]. We differentiate between the Static Horizontal and Static Vertical MPAs as we hypothesize that vertically oriented MPAs will be more likely to benefit species as they shift poleward due to climate change [@poloczanska_responses_2016; @perry_climate_2005]. This type of MPA is relevant to include because the vertical orientation could fulfill similar roles to networks of protected areas that span across latitudinal gradients which are important under rapid climate change [@hole_toward_2011; @johnston_observed_2013]. We did not include dynamic counterparts to these as the hypothesized goal of the Static Vertical MPA is to cover a wide range of temperature gradients providing protection as species migrate polewards. 
+All designs with MPAs had the same amount of spatial area closed (e.g, 42 out of 400 cells, roughly 10% of the ecosystem), and visuals of the MPA designs can be found in the supplemental materials (Figs \@ref(fig:static-mpa-visuals) and \@ref(fig:shifting-mpa-visuals)). 
+
+## Statistics
+We fit linear regression models to determine significance in aggregate levels of biomass, catch, and revenue under our 4$\^circ$C warming scenario between various MPA designs and the baseline no MPA scenario. We present our results comparing the average values of the present day ecosystem (years 0-10) to the end of the century ecosystem (years 90-100). 
+
+# Results
+
+
+```{r ecosystem-wide-results-modeling}
+baseline_decade <- average_data %>% 
+  group_by(RCP, design, year, type) %>% 
+  summarize(value_aggregate = sum(value)) %>% 
+  filter(year <=9) %>% 
+  group_by(RCP, design, type) %>% 
+  summarize(average_2000s = mean(value_aggregate),
+            stdev_2000s = sd(value_aggregate)) %>%
+  mutate(se_2000s = stdev_2000s/sqrt(10))
+
+end_of_century_decade <- average_data %>% 
+  group_by(RCP, design, year, type) %>% 
+  summarize(value_aggregate = sum(value)) %>% 
+  filter(year >=90 & year <=99) %>% 
+  group_by(RCP, design, type) %>% 
+  summarize(average_2090s = mean(value_aggregate),
+            stdev_2090s = sd(value_aggregate)) %>%
+  mutate(se_2090s = stdev_2090s/sqrt(10))
+
+
+summary_table_revenue1 <- average_fleet_data %>% 
+  group_by(RCP, design, year, type) %>% 
+  summarize(value_aggregate = sum(value)) %>% 
+  filter(year <= 9) %>% 
+  group_by(RCP, design, type) %>% 
+  summarize(average_2000s = mean(value_aggregate),
+            stdev_2000s = sd(value_aggregate)) %>%
+  mutate(se_2000s = stdev_2000s/sqrt(10))
+
+summary_table_revenue2 <- average_fleet_data %>% 
+  group_by(RCP, design, year, type) %>% 
+  summarize(value_aggregate = sum(value)) %>% 
+  filter(year >=90 & year <=99) %>% 
+  group_by(RCP, design, type) %>% 
+  summarize(average_2090s = mean(value_aggregate),
+            stdev_2090s = sd(value_aggregate)) %>%
+  mutate(se_2090s = stdev_2090s/sqrt(10))
+
+
+
+summary_table_temp_baseline <- baseline_decade %>% gather(key= variable, value=value, -RCP, -type, -design)
+summary_table_temp_end_of_century <- end_of_century_decade %>% gather(key= variable, value=value, -RCP, -type, -design)
+summary_table_temp <- rbind(summary_table_temp_baseline, summary_table_temp_end_of_century)
+summary_table_temp$type <- gsub(summary_table_temp$type, pattern=".*_", replacement="")
+summary_table_temp$year <- gsub(summary_table_temp$variable, pattern=".*_", replacement="")
+summary_table_temp$variable <- gsub(summary_table_temp$variable, pattern="_.*", replacement="")
+summary_table_temp$aggregate <- paste(summary_table_temp$RCP, summary_table_temp$design, summary_table_temp$year, sep="/")
+summary_table_temp$label <- paste(summary_table_temp$design, summary_table_temp$year, sep=" ")
+
+spread <- summary_table_temp %>%
+  filter(variable != "se")  %>%
+  spread(key=variable, value=value)
+
+summary_table_biomass <- spread %>% filter(type=="Biomass")
+summary_table_catch <- spread %>% filter(type=="Catch")
+summary_table_effort <- spread %>% filter(type=="Effort")
+
+
+summary_table_revenue2$year <- "2090s"
+summary_table_revenue2$type <- "Revenue"
+
+colnames(summary_table_revenue2) <- gsub(colnames(summary_table_revenue2), pattern="_2090s", replacement="")
+agg_plot_data <- bind_rows(spread, summary_table_revenue2)
+
+
+test_data <- average_data %>% 
+  group_by(RCP, design, type, year) %>% 
+  summarize(value_aggregate = sum(value)) %>% 
+  
+  filter(year >=90 & year <=99 & RCP=="RCP8.5")
+test_data$design <- fct_relevel(test_data$design, "NoMPA", after=0)
+linmod_biomass <- lm(value_aggregate ~ design, 
+                     data=test_data %>% filter(type=="Average_Biomass"))
+linmod_catch <- lm(value_aggregate ~ design, 
+                   data=test_data %>% filter(type=="Average_Catch"))
+
+tidy_model_names <- c("Variable", "Estimate", "Std. Error", "t-statistic", "p-value")
+
+model_table <- function(model=NA){
+  modeL_results <- broom::tidy(model)
+  modeL_results$term <- gsub(modeL_results$term, pattern="design", replacement="")
+  modeL_results <- modeL_results %>% left_join(mpa_labels, by=c('term'='design'))
+  modeL_results$mpa_label[is.na(modeL_results$mpa_label)] <- "Intercept"
+  modeL_results <- modeL_results %>%
+    select(-term) %>% 
+    select(mpa_label, everything())
+  colnames(modeL_results) <- tidy_model_names
+  return(modeL_results)
+}
+
+test_data_revenue <- average_fleet_data %>% 
+  filter(year >=90 & year <=99 & RCP=="RCP8.5") %>% 
+  group_by(RCP, design, year, type) %>% 
+  summarize(value_aggregate = sum(value))
+test_data_revenue$design <- fct_relevel(test_data_revenue$design, "NoMPA", after=0)
+
+linmod_revenue <- lm(value_aggregate ~ design, 
+                     data=test_data_revenue)
+
+
+linmod_biomass_results <- model_table(linmod_biomass)
+linmod_catch_results <- model_table(linmod_catch)
+linmod_revenue_results <- model_table(linmod_revenue)
+
+total_catch_pvalues <- max(linmod_catch_results %>% pull('p-value'))
+if(total_catch_pvalues < 0.001){
+  total_catch_pvalues <- '0.001'
+}
+
+total_revenue_pvalues <- max(linmod_revenue_results %>% pull('p-value'))
+if(total_revenue_pvalues < 0.001){
+  total_revenue_pvalues <- '0.001'
+}
+
+#Difference between MPA Square shifting and others:
+test_data$design <- fct_relevel(test_data$design, "MPA_Square_Shifting", after=0)
+
+linmod_biomass <- lm(value_aggregate ~ design, 
+                     data=test_data %>% filter(type=="Average_Biomass"))
+linmod_catch <- lm(value_aggregate ~ design, 
+                   data=test_data %>% filter(type=="Average_Catch"))
+
+test_data_revenue$design <- fct_relevel(test_data_revenue$design, "MPA_Square_Shifting", after=0)
+linmod_revenue <- lm(value_aggregate ~ design, 
+                     data=test_data_revenue)
+# summary(linmod_revenue)
+
+linmod_biomass_results <- model_table(linmod_biomass)
+linmod_catch_results <- model_table(linmod_catch)
+linmod_revenue_results <- model_table(linmod_revenue)
+
+square_shifting_square_static_biomass_pvalue <- linmod_biomass_results %>% filter(Variable=="Square Static") %>% pull('p-value')
+square_shifting_square_static_catch_pvalue <- linmod_catch_results %>% filter(Variable=="Square Static") %>% pull('p-value')
+square_shifting_square_static_revenue_pvalue <- linmod_revenue_results %>% filter(Variable=="Square Static") %>% pull('p-value')
+
+if(square_shifting_square_static_biomass_pvalue < 0.001){
+  square_shifting_square_static_biomass_pvalue <- '0.001'
+}
+if(square_shifting_square_static_catch_pvalue < 0.001){
+  square_shifting_square_static_catch_pvalue <- '0.001'
+}
+if(square_shifting_square_static_revenue_pvalue < 0.001){
+  square_shifting_square_static_revenue_pvalue <- '0.001'
+}
+
+
+```
+
+```{r ecosystem-wide-results-prep}
+end_of_century_decade <- average_data %>% 
+  group_by(RCP, design, year, type) %>% 
+  summarize(value_aggregate = sum(value)) %>% 
+  filter(year >=90 & year <=99) %>% 
+  group_by(RCP, design, type) %>% 
+  summarize(average_2090s = mean(value_aggregate),
+            stdev_2090s = sd(value_aggregate)) %>%
+  mutate(se_2090s = stdev_2090s/sqrt(10))
+
+nompa_average <- end_of_century_decade %>% 
+  ungroup() %>% 
+  filter(design=="NoMPA")  %>% 
+  rename(baseline=average_2090s,
+         baseline_stdev = stdev_2090s,
+         baseline_se = se_2090s) %>% 
+  select(-c(design))
+
+sd_num <- 1.96 
+summary_table_catch_biomass <- end_of_century_decade %>% 
+  ungroup() %>% 
+  filter(design!="NoMPA") %>% 
+  left_join(nompa_average) %>% 
+  mutate(upper_bound = average_2090s + (sd_num*baseline_stdev),
+         lower_bound = average_2090s - (sd_num*baseline_stdev)) %>% 
+  mutate(perc_change = ((average_2090s-baseline)/baseline)*100,
+         upper_bound = ((upper_bound-baseline)/baseline)*100,
+         lower_bound = ((lower_bound-baseline)/baseline)*100
+         )
+
+summary_table_catch_biomass$type <- gsub(summary_table_catch_biomass$type, pattern= "Average_", replacement="")
+
+summary_table_revenue <- average_fleet_data %>% 
+  group_by(RCP, design, year, type) %>% 
+  summarize(value_aggregate = sum(value)) %>% 
+  filter(year >=90 & year <=99) %>% 
+  group_by(RCP, design, type) %>% 
+  summarize(average_2090s = mean(value_aggregate),
+            stdev_2090s = sd(value_aggregate)) %>%
+  mutate(se_2090s = stdev_2090s/sqrt(10))
+
+nompa_average_revenue <- summary_table_revenue %>% 
+  ungroup() %>% 
+  filter(design=="NoMPA")  %>% 
+  rename(baseline=average_2090s,
+         baseline_stdev = stdev_2090s,
+         baseline_se = se_2090s) %>% 
+  select(-c(design))
+
+sd_num <- 1.96 
+summary_plot_table_revenue <- summary_table_revenue %>% 
+  ungroup() %>% 
+  filter(design!="NoMPA") %>% 
+  left_join(nompa_average_revenue) %>% 
+  mutate(upper_bound = average_2090s + (sd_num*baseline_stdev),
+         lower_bound = average_2090s - (sd_num*baseline_stdev)) %>% 
+  mutate(perc_change = ((average_2090s-baseline)/baseline)*100,
+         upper_bound = ((upper_bound-baseline)/baseline)*100,
+         lower_bound = ((lower_bound-baseline)/baseline)*100
+         )
+
+summary_plot_table_revenue$type <- "Revenue"
+
+ecosystem_perc_change_data <- bind_rows(summary_table_catch_biomass, summary_plot_table_revenue)
+
+mean_catch_change <- mean(ecosystem_perc_change_data %>% 
+  filter(RCP=="RCP8.5") %>% 
+  filter(type=="Catch") %>% 
+  pull(perc_change))
+
+mean_revenue_change <- mean(ecosystem_perc_change_data %>% 
+  filter(RCP=="RCP8.5") %>% 
+  filter(type=="Revenue") %>% 
+  pull(perc_change))
+
+square_shifting_catch_change <- ecosystem_perc_change_data %>% 
+  filter(RCP=="RCP8.5") %>% 
+  filter(design=="MPA_Square_Shifting") %>% 
+  filter(type=="Catch") %>% 
+  pull(perc_change)
+
+square_shifting_revenue_change <- ecosystem_perc_change_data %>% 
+  filter(RCP=="RCP8.5") %>% 
+  filter(design=="MPA_Square_Shifting") %>% 
+  filter(type=="Revenue") %>% 
+  pull(perc_change)
+
+square_shifting_biomass_change <- ecosystem_perc_change_data %>% 
+  filter(RCP=="RCP8.5") %>% 
+  filter(design=="MPA_Square_Shifting") %>% 
+  filter(type=="Biomass") %>% 
+  pull(perc_change)
+
+square_static_catch_change <- ecosystem_perc_change_data %>% 
+  filter(RCP=="RCP8.5") %>% 
+  filter(design=="MPA_Square_Static") %>% 
+  filter(type=="Catch") %>% 
+  pull(perc_change)
+
+square_static_revenue_change <- ecosystem_perc_change_data %>% 
+  filter(RCP=="RCP8.5") %>% 
+  filter(design=="MPA_Square_Static") %>% 
+  filter(type=="Revenue") %>% 
+  pull(perc_change)
+
+
+square_static_biomass_change <- ecosystem_perc_change_data %>% 
+  filter(RCP=="RCP8.5") %>% 
+  filter(design=="MPA_Square_Static") %>% 
+  filter(type=="Biomass") %>% 
+  pull(perc_change)
+
+```
+
+
+Our results suggest that there is a significant difference in biomass in only one MPA design scenarios, Square Shifting, compared to the no MPA scenario (Fig \@ref(fig:ecosystem-perc-change)); however, the magnitude of the difference in biomass is minimal (<5% difference in biomass under all MPA designs) (Supplemental Table S7). Catches are slightly higher (mean value of `r round(mean_catch_change)`%) under all MPA scenarios (p-values < `r total_catch_pvalues`) than under the no MPA scenario (Supplemental Table S8). No single MPA design significantly outperforms the others consistently in terms of both biomass and catch under both warming scenarios. Even with higher catches, revenue is significantly lower (mean value of `r round(mean_revenue_change)`%, p-values < `r total_revenue_pvalues`) under all MPA scenarios than under the no MPA scenario (Fig \@ref(fig:ecosystem-perc-change)) due to a combination of price elasticity and lower-value species being caught. Overall, there is strong variation of catches by species under different MPA designs, especially in the Network designs; however, the changes in catches between MPA designs at the edges of MPAs are minimal when aggregated across groups (Fig \@ref(fig:catch-groups-biomass-catch)).
+
+When comparing the dynamic MPAs to their static counterparts, we see that the Square Shifting MPA outperforms the static on all aggregate measures but the Network MPAs perform similarly on all aggregate measures. The Square Shifting MPA compared to the Static Square MPA has significantly higher catches (`r round(square_shifting_catch_change, 1)`% compared to `r round(square_static_catch_change, 1)`%, p-value < `r square_shifting_square_static_catch_pvalue`) and revenue (`r round(square_shifting_revenue_change, 1)`% compared to `r round(square_static_revenue_change, 1)`%, p-value < `r square_shifting_square_static_revenue_pvalue`), and higher biomass, although not significant (`r round(square_shifting_biomass_change, 1)`% compared to `r round(square_static_biomass_change, 1)`%, , p-value = `r round(square_shifting_square_static_biomass_pvalue, 3)`). In contrast, the network MPAs have <1% difference between their relative performance when compared against the no MPA scenario and their 95% confidence intervals overlap for all of their measures (Fig \@ref(fig:ecosystem-perc-change)). Overall, the  Square Shifting MPA also outperforms both network MPA designs significantly in terms of total catch, revenue, and biomass (Fig \@ref(fig:ecosystem-perc-change), Tables S7-S9). 
+
+```{r ecosystem-perc-change, eval=T, fig.cap="Percent change from the no MPA scenario at the end of the 21^st^ century under four degrees C warming. All scenarios are significantly different in terms of catch and revenue from the no MPA scenario. Error bars represent 95% confidence intervals."}
+
+
+ecosystem_perc_change_plot <- ecosystem_perc_change_data %>% 
+  filter(RCP=="RCP8.5") %>% 
+  left_join(mpa_labels) %>% 
+  ggplot(aes(x=mpa_label, y=perc_change, fill=type)) +
+  geom_col() +
+  geom_errorbar(aes(x=mpa_label, ymin=lower_bound, ymax=upper_bound)) + 
+  coord_flip() + 
+  xlab("MPA design") + 
+  ylab("Percent change (%)") + 
+  #ylab(expression(paste("Tonnes / km"^2, "                          Tonnes / km"^2, "                             $ / km"^2))) +
+  #ylab(expression("Tonnes km"^2 , "Tonnes / km"^2 , "$ / km"^2)) +
+  theme(legend.position = "None") + 
+  facet_wrap(~type, scales="free_x") + 
+  #geom_text(data=label_df, aes(x=mpa_label, y=average, label=label_sig)) + 
+  NULL
+ecosystem_perc_change_plot
+ggsave('./Figures/Manuscript/Fig2.tiff')
+
+```
+
+
+```{r mpa-spatial-prep}
+mpa_spatial <- left_join(spatial_data, mpa_data) 
+mpa_spatial$mpa[which(mpa_spatial$design=="NoMPA")] <- 0
+x <- mpa_spatial[is.na(mpa_spatial$mpa),] 
+colors <- c(NA, "red", "blue")
+mpa_spatial <- mpa_spatial %>% 
+  left_join(mpa_legend)
+mpa_spatial$MPA <- as.factor(mpa_spatial$MPA)
+mpa_spatial$MPA <- fct_relevel(mpa_spatial$MPA, "Outside", after=0)
+mpa_spatial$MPA <- fct_relevel(mpa_spatial$MPA, "Inside", after=1)
+
+```
+
+```{r mpa-annotate}
+
+#Create manual borders for each MPA design
+horiz_static <- tibble(design="MPA_Horiz_Static", mx1=3, mx2=16, my1=3, my2=5, ax1=1, ax2=2, ay1=1, ay2=2)
+network_static1 <- tibble(design="MPA_Network_Static", mx1=8, mx2=13, my1=3, my2=4, ax1=0, ax2=2, ay1=0, ay2=2)
+network_static2 <- tibble(design="MPA_Network_Static", mx1=8, mx2=13, my1=6, my2=7, ax1=0, ax2=2, ay1=0, ay2=2)
+network_static3 <- tibble(design="MPA_Network_Static", mx1=8, mx2=13, my1=9, my2=11, ax1=0, ax2=2, ay1=0, ay2=2)
+network_shifting1 <- tibble(design="MPA_Network_Shifting", mx1=8, mx2=13, my1=2, my2=3, ax1=0, ax2=2, ay1=0, ay2=2)
+network_shifting2 <- tibble(design="MPA_Network_Shifting", mx1=8, mx2=13, my1=5, my2=6, ax1=0, ax2=2, ay1=0, ay2=2)
+network_shifting3 <- tibble(design="MPA_Network_Shifting", mx1=8, mx2=13, my1=8, my2=10, ax1=0, ax2=2, ay1=0, ay2=2)
+square_static <- tibble(design="MPA_Square_Static", mx1=8, mx2=13, my1=3, my2=9, ax1=0, ax2=2, ay1=0, ay2=2)
+square_shifting <- tibble(design="MPA_Square_Shifting", mx1=8, mx2=13, my1=2, my2=8, ax1=0, ax2=2, ay1=0, ay2=2)
+vert_static <- tibble(design="MPA_Vert_Static", mx1=9, mx2=11, my1=2, my2=15, ax1=0, ax2=2, ay1=0, ay2=2)
+mpa_annotation_df <- bind_rows(horiz_static, network_static1, network_shifting1, network_static2, network_shifting2, network_static3, network_shifting3, square_static, square_shifting, vert_static)
+
+#Then need to expand to touch the 'edges' of the MPA rather than start at the center of the cell. 
+#Subtract 0.5 from min coords and add 0.5 to max coords. 
+mpa_annotation_df$mx1 <- mpa_annotation_df$mx1 - 0.5
+mpa_annotation_df$mx2 <- mpa_annotation_df$mx2 + 0.5
+mpa_annotation_df$my1 <- mpa_annotation_df$my1 - 0.5
+mpa_annotation_df$my2 <- mpa_annotation_df$my2 + 0.5
+
+#I reverse the orientation on the map so I need to reverse the y coordinates here too:
+mpa_annotation_df$my1 <- 21  - mpa_annotation_df$my1
+mpa_annotation_df$my2 <- 21  - mpa_annotation_df$my2
+
+mpa_annotation_df$ax1 <- mpa_annotation_df$mx1 - 1
+mpa_annotation_df$ax2 <- mpa_annotation_df$mx2 + 1
+mpa_annotation_df$ay1 <- mpa_annotation_df$my1 + 1
+mpa_annotation_df$ay2 <- mpa_annotation_df$my2 - 1
+
+#Make sure the border goes around all of the MPA (important for the network MPA designs)
+mpa_annotation_df <- mpa_annotation_df %>% 
+  group_by(design) %>% 
+  mutate(ax1 = min(ax1),
+         ay1 = max(ay1),
+         ax2 = max(ax2),
+         ay2 = min(ay2)) %>% 
+  ungroup() 
+
+
+nompa <- tibble(design="NoMPA", mx1=NA, mx2=NA, my1=NA, my2=NA, ax1=NA, ax2=NA, ay1=NA, ay2=NA)
+mpa_annotation_df <- bind_rows(mpa_annotation_df, nompa) %>% 
+  left_join(mpa_labels, by= "design") %>% 
+  select(-design) %>% 
+  rename(design=mpa_label)
+
+
+```
+
+
+```{r catch-groups-biomass-catch, fig.cap="Biomass (t/km^2) and catch (t/km^2) of fished functional groups at the end of the century (Years 90-100)", dpi=600, fig.width=20, fig.height=6}
+
+mpa_spatial <- mpa_spatial %>% 
+  left_join(mpa_labels) %>% 
+  select(-design) %>% 
+  rename(design=mpa_label)
+
+catch_fgs <- c("Anchovy", "Shrimp", "Mackerel ad", "Whiting", "Cod", "Seals")
+mpa_spatial_biomass_fisheries <- end_of_century_average(df=mpa_spatial, groups=catch_fgs)
+mpa_spatial_catch_fisheries <- end_of_century_average(df=mpa_spatial, groups=catch_fgs)
+
+max_value <- max(mpa_spatial_biomass_fisheries %>% filter(type=="Biomass") %>% pull(value))
+min_value <- min(mpa_spatial_biomass_fisheries %>% filter(type=="Biomass") %>% pull(value)) 
+min_value <- floor(min_value)
+if (ceiling(max_value)!=1){
+  max_value <- ceiling(max_value)
+}
+
+
+mpa_spatial_biomass_fisheries$design <- fct_relevel(mpa_spatial_biomass_fisheries$design, "No MPA", after=0)
+mpa_designs <- unique(mpa_spatial_biomass_fisheries$design)
+for (design in mpa_designs){
+  p <- spatial_maps_segment_plots(df=mpa_spatial_biomass_fisheries, MPA_design=design, type_measure="Biomass", RCP_scenario="RCP8.5")
+  #ggsave(paste0("./VisualOutputs/ChangeInBiomassFisheriesGroups", design, ".png"), plot=p, dpi=300) #Optional save each plot as we go. 
+  p <- p + labs(y="") #Undoing RCP Label
+  plot_name <- paste0(design, "Biomass")
+  assign(plot_name, p)
+}
+
+p <- p +
+  theme(legend.position = "right") +
+  labs(fill=expression("Biomass t/km"^2))
+biomass_segment_legend <- cowplot::get_legend(p)
+
+combined_biomass <- cowplot::plot_grid(`No MPABiomass`, `Horizontal StaticBiomass`, `Vertical StaticBiomass`, `Square StaticBiomass`, `Square ShiftingBiomass`, `Network StaticBiomass`, `Network ShiftingBiomass`, biomass_segment_legend,  align="h", nrow=1)
+#print(combined_biomass)
+ggsave("./VisualOutputs/ChangeinBiomassFisheriesGroupsCombined.png", plot=combined_biomass, dpi=1200, height = 4, width=20)
+
+
+max_value <- max(mpa_spatial_catch_fisheries %>% filter(type=="Catch") %>% pull(value))
+min_value <- min(mpa_spatial_catch_fisheries %>% filter(type=="Catch") %>% pull(value)) 
+min_value <- floor(min_value)
+if (ceiling(max_value)!=1){
+  max_value <- ceiling(max_value)
+}
+for (design in mpa_designs){
+  p <- spatial_maps_segment_plots(df=mpa_spatial_catch_fisheries, MPA_design=design, type_measure="Catch", RCP_scenario="RCP8.5")
+  #ggsave(paste0("./VisualOutputs/ChangeInCatchFisheriesGroups", design, ".png"), plot=p, dpi=300)
+  p <- p + labs(y="") #Undoing RCP Label
+  plot_name <- paste0(design, "Catch")
+  assign(plot_name, p)
+}
+
+p <- p +
+  theme(legend.position = "right") +
+  labs(fill=expression("Catch t/km"^2))
+catch_segment_legend <- cowplot::get_legend(p)
+
+
+combined_catch <- cowplot::plot_grid(`No MPACatch`, `Horizontal StaticCatch`, `Vertical StaticCatch`, `Square StaticCatch`, `Square ShiftingCatch`, `Network StaticCatch`, `Network ShiftingCatch`, catch_segment_legend,
+                                   align="h", nrow=1)
+#print(combined_catch)
+ggsave("./VisualOutputs/ChangeinCatchFisheriesGroupsCombined.png", plot=combined_catch, dpi=1200, height = 4, width=20)
+
+
+combined_both <- cowplot::plot_grid(`No MPABiomass`, `Horizontal StaticBiomass`, `Vertical StaticBiomass`, `Square StaticBiomass`, `Square ShiftingBiomass`, `Network StaticBiomass`, `Network ShiftingBiomass`, biomass_segment_legend,
+                                   `No MPACatch`, `Horizontal StaticCatch`, `Vertical StaticCatch`, `Square StaticCatch`, `Square ShiftingCatch`, `Network StaticCatch`, `Network ShiftingCatch`, catch_segment_legend,
+                                   align="h", nrow=2)
+print(combined_both)
+
+ggsave('./Figures/Manuscript/Fig3.tiff', dpi=300, height = 8, width=20)
+# ggsave("./VisualOutputs/ChangeinBiomassCatchFisheriesGroupsCombined.png", dpi=1200, height = 8, width=20)
+
+
+```
+
+
+We observe the change in species ranges through their average biomass at different 'latitudes' in our ecosystem (Fig \@ref(fig:latitude-ridgeline)). For many fished species, the introduction of the MPAs does not fundamentally alter the species ranges. However, for adult mackerel, the effect of introducing an MPA is dramatic, shifting the range to almost solely within the MPA areas regardless of design (Fig \@ref(fig:latitude-ridgeline) & SXX(Mackerel Biomass Plot)). Comparing the Static Vertical and Horizontal MPAs, we can see the range of the species is heavily concentrated in the 'Northern' latitudes in the horizontal MPA but spread out across a greater range in the Vertical MPA. Comparing the Square designs to the Network designs (Static and Shifting), the Network designs have more biomass in the Southern ranges than the Square designs. 
+
+
+```{r latitude-ridgeline, fig.cap="Normalized Biomass of fished functional groups at the end of the century (Years 90-100) by latitude.", dpi=600, fig.width=20, fig.height=8}
+ipak("ggridges")
+
+ridge_data <- mpa_spatial %>% 
+  left_join(mpa_labels) %>% 
+  filter(type=="Biomass") %>% 
+  filter(year >= 90) %>% 
+  filter(RCP == "RCP8.5") %>% 
+  filter(fg %in% catch_fgs) %>% 
+  group_by(fg, design, row_num) %>% 
+  summarize(row_total = mean(value)) %>% 
+  ungroup() %>% 
+  group_by(fg) %>% 
+  mutate(row_total = 100*row_total/sum(row_total))
+ridge_data$fg[which(ridge_data$fg=="Mackerel ad")] <- "Mackerel adult"
+ridge_data$design <- fct_relevel(ridge_data$design, c("No MPA", "Horizontal Static", "Vertical Static", "Square Static", "Square Shifting", "Network Static", "Network Shifting"), after=0)
+
+#Original
+# ridge_plot <- ridge_data %>% 
+#   ggplot(aes(x= rev(row_num), y= design, fill=design)) +
+#   geom_ridgeline(aes(height=row_total), alpha=0.5) +
+#   xlab("Latitutde") + 
+#   ylab("MPA Design") +
+#   labs(fill="MPA Design") + 
+#   #theme(legend.position="none") +
+#   theme(axis.text.x = element_text(angle=45, vjust=0.5)) + 
+#   facet_wrap(~fg, nrow=2) + 
+#   scale_fill_viridis_d() + 
+#   coord_flip() + 
+#   NULL
+# ridge_plot  
+
+#New and improved:
+ridge_plot <- ridge_data %>%
+  ggplot(aes(x= rev(row_num), y= row_total, color=design)) +
+  geom_ridgeline(aes(height=row_total), alpha=0) +
+  xlab("Latitutde") +
+  ylab("MPA Design") +
+  labs(color="MPA Design") +
+  facet_wrap(~fg, nrow=2) +
+  scale_color_viridis_d() +
+  coord_flip() +
+  NULL
+ridge_plot
+ggsave('./Figures/Manuscript/Fig4.tiff')
+# Million panels:
+# ridge_plot <- ridge_data %>%
+#   ggplot(aes(x= rev(row_num), y= row_total, fill=design)) +
+#   geom_ridgeline(aes(height=row_total), alpha=0.5) +
+#   xlab("Latitutde") +
+#   ylab("MPA Design") +
+#   labs(fill="MPA Design") +
+#   #theme(legend.position="none") +
+#   #theme(axis.text.x = element_text(angle=45, vjust=0.5)) +
+#   facet_wrap(~fg + design, ncol=7) +
+#   scale_fill_viridis_d() +
+#   coord_flip() +
+#   NULL
+# ridge_plot
+
+```
+
+
+## Species-specific results
+There are winners and losers for different species and fisheries under the combination of MPA and climate change effects. The spillover effect of increased catches adjacent to MPAs is observable for those species that thrive within the MPA depending on the MPA design (e.g., for whiting under all MPA designs, Fig SX). This effect of increasing biomass within the MPA is mediated by the predator-prey interactions that may be affected by whether some species are primarily protected from fisheries (e.g., shrimp is negatively affected within the MPAs by the protection of their predator, whiting). Anchovy and whiting are the two groups that benefit the most compared to the no MPA scenario under all MPA scenarios (Fig \@ref(fig:bar-chart-biomass)) with average increases of 26% and 28%, respectively. The non-network scenarios (the Static Vertical, Horizontal, and Square and the Dynamic Square scenarios) appear to generate more extreme positive outcomes for anchovy, whiting and whales and larger negative outcomes for mackerel (juvenile and adult) and shrimp. This strong negative effect on mackerel is consistent across MPA scenarios (average decline of -65% for adult mackerel). 
+
+```{r bar-chart-biomass, fig.cap="Percent change in biomass of select functional groups compared to no MPA scenario at the end of the 21^st^ century. Error bars represent 95% confidence intervals of the mean percent change."}
+
+excluded_fgs <- c("Zooplankton", "Benthos", "Phytoplankton", "Detritus")
+
+decade1 <- seq(0,9,1)
+decade2 <- seq(45,54,1)
+decade3 <- seq(90,99,1)
+
+average_data <- average_data %>% 
+  mutate(TimePeriod = if_else(year %in% decade1, "Today", 
+                              if_else(year %in% decade2, "Mid-Century", 
+                                      if_else(year %in% decade3, "End of Century", ""))))
+
+average_data$TimePeriod <- fct_relevel(average_data$TimePeriod, "Today", "Mid-Century", "End of Century")
+
+biomass_fg_data <- average_data %>%
+  filter(TimePeriod != "") %>% 
+  filter(!group %in% excluded_fgs) %>% 
+  filter(RCP=="RCP8.5") %>% 
+  group_by(group, TimePeriod, type, design, RCP) %>%
+  summarize(stdev = sd(value, na.rm=TRUE),
+            value=mean(value)) 
+
+nompa_average <- biomass_fg_data %>% 
+  ungroup() %>% 
+  filter(design=="NoMPA")  %>% 
+  rename(baseline=value,
+         baseline_stdev = stdev) %>% 
+  select(-c(design))
+
+sd_num <- 1.96
+biomass_fg_data <- biomass_fg_data %>% 
+  ungroup() %>% 
+  filter(design!="NoMPA") %>% 
+  filter(TimePeriod == "End of Century") %>% 
+  left_join(nompa_average) %>% 
+  mutate(upper_bound = value + (sd_num*stdev),
+         lower_bound = value - (sd_num*stdev)) %>% 
+  mutate(perc_change = ((value-baseline)/baseline)*100,
+         upper_bound = ((upper_bound-baseline)/baseline)*100,
+         lower_bound = ((lower_bound-baseline)/baseline)*100
+         )
+
+biomass_fg_data$group <- as.character(biomass_fg_data$group) 
+biomass_fg_data$group <- gsub(biomass_fg_data$group, pattern=" ad", replacement=" adult")
+biomass_fg_data$group <- gsub(biomass_fg_data$group, pattern=" juv", replacement=" juvenile")
+biomass_fg_data$group <- as.factor(biomass_fg_data$group)
+biomass_fg_data$group <- fct_relevel(biomass_fg_data$group, c("Mackerel adult", "Anchovy",  "Mackerel juvenile", "Whales",  "Shrimp", "Seals", "Cod", "Whiting"), after=0)
+
+biomass <- biomass_fg_data %>% 
+  filter(type=="Average_Biomass") %>% 
+  left_join(mpa_labels) %>% 
+  ggplot(aes(x=mpa_label, y=perc_change, fill=perc_change)) +
+  geom_col() +
+  geom_errorbar(aes(x=mpa_label, ymin=lower_bound, ymax=upper_bound)) + 
+  coord_flip() +
+  xlab("MPA design") + 
+  ylab("Percent change in biomass") + 
+  facet_wrap(~group, ncol=2, scales="free_x") + 
+  scale_fill_gradientn(colors=rev(zissou_continuous)) + 
+  labs(fill="Percent change") + 
+  NULL
+biomass
+# ggsave("./VisualOutputs/Change in biomass by scenario under RCP8.5_AlternativeFormat.png", dpi=300, width=8.5, height=12, units="in")
+
+ggsave('./Figures/Manuscript/Fig5.tiff', dpi=300, width=8.5, height=12, units="in")
+
+#mean(biomass_fg_data %>% filter(group=="Anchovy") %>% pull(perc_change))
+#mean(biomass_fg_data %>% filter(group=="Whiting") %>% pull(perc_change))
+#mean(biomass_fg_data %>% filter(group=="Mackerel adult") %>% pull(perc_change))
+
+```
+ 
+
+## Fishery results
+Our results suggest that catches were higher under all MPA scenarios and fisheries revenues were lower under all MPAs compared to the no MPA scenario. This is likely because catches of high-value species are lower (e.g., shrimp), while low-value species (e.g., anchovy and whiting) are higher (Fig \@ref(fig:bar-chart-revenue-by-fleet)). Species that have increased biomass under the MPA scenarios also have higher catches, and vice versa (Fig SXX-1.4). The increase in biomass is followed by an increase in catches with the same fishing effort thus leading to higher catch per unit effort of these fleets. Thus, the 'foragers' fleet for anchovy and the trawlers for whiting see their catches increase by between 15 and 30% depending on the scenario. In contrast, the mackerel fleet experiences much lower catches, not only because of the area closed to fishing, but also due to the lowered mackerel populations. These changes in the catch profiles under MPA scenarios lead to an aggregate loss in fisheries revenues, even though there are higher total catches. 
+
+Only the anchovy fleet experiences economic benefits under all the MPA scenarios (Fig \@ref(fig:bar-chart-revenue-by-fleet)). The remaining fleets experience almost no change from the no MPA scenario (cod) or declines in revenue (all others). While the network MPA scenarios minimize losses of revenue compared to non-network MPA scenarios, they also are the worst performing for the anchovy fleets. 
+
+MPAs lead to an aggregate loss in revenue under climate change, when compared to a no MPA scenario due to a reduction in fishing area. However, some designs perform better than others (Fig \@ref(fig:ecosystem-perc-change)). By the end of the century under four $\^circ$C warming, the dynamic network and the static network designs perform the best in terms of revenue and experience the smallest loss relative to the no MPA scenario. 
+
+The best MPA design in terms of revenue (other than the no MPA scenario) is the Square Shifting design, followed by the Network Shifting and the Horizontal Static MPA which are comparable to each other. These three designs are significantly better than the alternatives (Fig \@ref(fig:ecosystem-perc-change)), but not for all fishing fleets. For example, the Square Shifting MPA has the best result in terms of anchovy fleets (+33%) but the worst result in terms of mackerel fleets (-91%; Fig \@ref(fig:bar-chart-revenue-by-fleet)). 
+
+```{r bar-chart-revenue-by-fleet, fig.cap="Percent change in revenue of each fishing fleet compared to no MPA scenario at the end of the 21^st^ century. Error bars represent 95% confidence intervals of the mean percent change."}
+
+design_chosen <- c("MPA_Vert_Static", "MPA_Network_Static", "MPA_Square_Shifting")
+excluded_fgs <- c("Zooplankton", "Benthos", "Phytoplankton", "Detritus")
+
+average_fleet_data <- average_fleet_data %>% 
+  mutate(TimePeriod = if_else(year %in% decade1, "Today", 
+                              if_else(year %in% decade2, "Mid-Century", 
+                                      if_else(year %in% decade3, "End of Century", ""))))
+
+average_fleet_data$TimePeriod <- fct_relevel(average_fleet_data$TimePeriod, "Today", "Mid-Century", "End of Century")
+
+revenue_fleet_data <- average_fleet_data %>%
+  filter(TimePeriod != "") %>% 
+  filter(RCP=="RCP8.5") %>% 
+  group_by(group, TimePeriod, design, RCP) %>%
+  summarize(stdev = sd(value),
+            value=mean(value))
+
+nompa_average <- revenue_fleet_data %>% 
+  ungroup() %>% 
+  filter(design=="NoMPA")  %>% 
+  rename(baseline_stdev = stdev,
+         baseline=value) %>% 
+  select(-design)
+
+revenue_fleet_data <- revenue_fleet_data %>% ungroup() %>% 
+  filter(design!="NoMPA") %>% 
+  left_join(nompa_average) %>% 
+  mutate(upper_bound = value + (sd_num*stdev),
+         lower_bound = value - (sd_num*stdev)) %>% 
+  mutate(perc_change = ((value-baseline)/baseline)*100,
+         upper_bound = ((upper_bound-baseline)/baseline)*100,
+         lower_bound = ((lower_bound-baseline)/baseline)*100
+         )
+
+revenue_fleet_data$group <- as.character(revenue_fleet_data$group)
+revenue_fleet_data$group[which(revenue_fleet_data$group=="Seiners | Mackerel ad")] <- "Seiners | Mackerel adult"
+revenue_fleet_data$group <- as.factor(revenue_fleet_data$group)
+revenue_fleet_data$group <- fct_relevel(revenue_fleet_data$group, c("Seiners | Mackerel adult", "Foragers | Anchovy",  "Shrimpers | Shrimp", "Sealers | Seals",  "Trawlers | Whiting","Trawlers | Cod"), after=0)
+
+revenue <- revenue_fleet_data %>% 
+  filter(TimePeriod=="End of Century") %>% 
+  left_join(mpa_labels) %>% 
+  ggplot(aes(x=mpa_label, y=perc_change, fill=perc_change)) +
+  geom_col() +
+  geom_errorbar(aes(x=mpa_label, ymin=lower_bound, ymax=upper_bound)) + 
+  coord_flip() +
+  xlab("MPA design") + 
+  ylab("Percent change in revenue") + 
+  facet_wrap(~group, ncol=2, scales="free_x") + 
+  #facet_wrap(~group, ncol=2) + 
+  scale_fill_gradientn(colors=rev(zissou_continuous)) + 
+  labs(fill="Percent change") + 
+  NULL
+revenue
+# ggsave("./VisualOutputs/Change in revenue by scenario and fleet under RCP8.5.png", dpi=300, width=8.5, height=11, units="in")
+
+ggsave('./Figures/Manuscript/Fig6.tiff', dpi=300, width=8.5, height=11, units="in")
+
+
+
+```
+
+# Discussion   
+Our findings show an increase in biomass in some MPA scenarios (notably Vertical Static, Network Static and Square Shifting), suggesting that, even under climate change, MPAs could provide benefits regionally. However, our model shows that there is no silver bullet design for maintaining ecological functions and the fisheries that depend on them under climate change. Various MPA designs performed relatively similarly to each other in terms of aggregate catch and revenue in comparison to the no MPA scenario, suggesting that MPAs could be beneficial regardless of the design. In terms of fisheries revenue, our MPA designs did not outperform the no MPA scenario under climate change. This finding reinforces the current understanding that trade-offs between species protection and fisheries are often needed [@davies_assessing_2018; @levin_framework_2009]. However, our model does demonstrate higher catches on the edges of MPAs that allow fishers to capitalize on the spillover effects of MPAs. 
+
+The Vertical MPA and Square Shifting MPA scenario may mitigate the negative impact of climate change on biomass by protecting species as they migrate to cooler waters because the Vertical MPA covers a larger temperature gradient than the other scenarios, and the Square Shifting MPA moves towards a colder temperature gradient. This may partially address current concerns expressed by Bruno et al. [-@bruno_climate_2018] of species thermal thresholds being exceeded in current tropical MPAs. However, this may not be true in all cases, where species migration to cooler waters may not be poleward [@burrows_ocean_2019]. The Network Static MPA increased aggregate biomass, yet it negatively impacted some species more than other MPA designs due to fisheries being able to exploit the spillover effect. In line with this finding, the Network MPAs were the best performing designs for fishery revenues over time.
+
+The potential benefits of dynamic MPAs are likely complicated by the ecological reality of predator-prey interactions and shifting fishing effort. This reinforces earlier findings that the potential benefits of MPAs vary by species [@lester_biological_2009]. While MPAs are often introduced to protect the marine ecosystem, they appear, in this analysis, to modify a previously fished ecosystem which can exacerbate predator-prey interactions to the point of increasing some populations and dramatically reducing others. An example of this in our model is the protection of mackerel from fishing within the MPA, but still being driven to very low biomass levels due to an increase in their predators (whales). Therefore, the idea of MPAs restoring ecosystems to some unfished historical state is complicated by ecological reality. Consequently, MPA design necessitates economic and ecological trade-offs that modify the ecosystem functioning and thus translate into effects on the people that rely upon these ecosystems [@rees_thematic_2013]. While dynamic MPAs may have ecological benefits [@game_dynamic_2009; @maxwell_dynamic_2015], they may be difficult in practice near coastal areas where a wide-variety of human activities occur and many people rely on the coastal environment for their livelihoods [@bennett_why_2014]. This source of conflict is reduced in the High Seas where dynamic MPAs could benefit many threatened species [@maxwell_mobile_2020].
+
+The results of our study confirm the importance of analyzing predator-prey interactions, and the need for managers to consider these interactions before implementing an MPA. Ecosystem-based management can be particularly helpful instead of single-species based management as the former accounts for species interactions [@walters_possible_2005; @serpetti_impact_2017]. Fished ecosystems are highly altered by the introduction of an MPA that modifies predator-prey interactions. To apply these findings, it is important to understand that the establishment of an MPA disrupts a current ecosystem that includes fishing pressure and that the ecosystems and their populations will be modified by these spatial restrictions of fishing pressure. These dynamics can be examined by modeling how food webs will respond if heavily fished species or an apex predator is released from fishing pressure [@mitchell_quantifying_2018]. Thus, it is important to design MPAs with specific goals in mind, whether it is the protection of a single species, certain species, or overall protection of the ecosystem. 
+
+## Limitations 
+Our work uses a simple ecosystem model with a climate change driver. The model allows us to explore trade-offs between temperature, fishery pressures, and ecosystems in MPA design. This research is not an empirical analysis, thus the results should be interpreted as demonstrative of potential principles and outcomes rather than a strictly literal interpretation. The model as it has been implemented is not subject to other challenges of fisheries and spatial management including non-compliance with no-take areas, especially for dynamically managed areas. 
+
+The simplified model we adapted does not control for habitat preferences of different functional groups outside temperature. This was done intentionally to isolate the effect of the MPA design from whether the MPA design overlapped with a species habitat.
+
+In addition, the temperature effects are driven by changes in sea surface temperature which are more relevant for some functional groups (e.g., anchovy and mackerel) than others (e.g., cod and whiting). 
+
+Our models produce spillover effects and the presence of higher catches under all MPA scenarios indicates that spillover compensates for the loss in catch in areas closed to fishing inside MPA boundaries. This finding demonstrates that our parameterized model predicts spillover catches and benefits to fisheries  based on the dispersal values used (and tested in our sensitivity analysis). The spillover in our model is demonstrated to be non-trivial based on dispersal values used. In the sensitivity analysis (see supplemental results), we vary the dispersal parameter to test varying degrees of spillover, and our results remain robust. However, this effect is likely to vary by species [@lester_biological_2009] and this is dependent on the species within the MPA and surrounding region. 
+
+Our modeling can help inform the potential benefits and costs of different MPA designs. However, the findings may not be accurate for all ecosystems. Therefore, it is important to consider the specifics of the ecosystem during the MPA design process and to potentially apply this type of modeling framework where possible. This reinforces our understanding of the value of information during MPA design [@costello_value_2010]. 
+
+# Conclusion
+
+Our results suggest that there is no one optimal solution path in the face of climate change because it depends on predator-prey dynamics, but different MPA designs could potentially bring about regional benefits in terms of biomass and catch. In this study, dynamic single MPAs outperformed dynamic or static networks of MPAs. In addition, some species ranges can be kept over an extended area through MPAs that extend over an environmental gradient. As our study shows, MPA managers must anticipate the effects of released fishing pressure and species interactions on the goals of their MPA. In the face of a changing climate, research that models the potential trade-offs of MPAs for sustainable fisheries management remains relevant on local and global scales. 
+
+# Author statement
+TC conducted the modeling in Ecopath with Ecosim. 
+All authors contributed to the original study design and idea.  
+All authors contributed to writing and editing the manuscript, and approved the final manuscript.  
+
+# Disclaimer
+This article was prepared while Dr. ten Brink was employed at the University of Rhode Island. The statements, findings, conclusions, and recommendations are those of the authors and do not necessarily reflect the views of the National Ocean and Atmospheric Administration, or the United States Government.  
+
+# Data availability
+All data and models are available in the supplementary material and all code used for analysis is available on https://gitlab.sesync.org/mpasandclimatechange. 
+
+# Acknowledgements
+This work was supported by the National Socio-Environmental Synthesis Center (SESYNC) under funding received from the National Science Foundation DBI-1639145.
+# References
+

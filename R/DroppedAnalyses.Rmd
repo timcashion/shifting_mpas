@@ -1,0 +1,153 @@
+---
+title: "DroppedAnalyses"
+author: "Tim Cashion"
+date: "5/20/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r ecosystem-wide-results, eval=T, fig.cap="Aggregate results at the end of the 21^st^ century for all scenarios under four degrees warming. All scenarios are significantly different in terms of catch and revenue from the no MPA scenario. Error bars represent 95% confidence intervals. Significance levels: \\*\\*\\*: p-value < 0.001; \\*\\*: p-value < 0.01; \\*: p-value < 0.05."}
+baseline_decade <- average_data %>% 
+  group_by(RCP, design, year, type) %>% 
+  summarize(value_aggregate = sum(value)) %>% 
+  filter(year <=9) %>% 
+  group_by(RCP, design, type) %>% 
+  summarize(average_2000s = mean(value_aggregate),
+            stdev_2000s = sd(value_aggregate)) %>%
+  mutate(se_2000s = stdev_2000s/sqrt(10))
+
+end_of_century_decade <- average_data %>% 
+  group_by(RCP, design, year, type) %>% 
+  summarize(value_aggregate = sum(value)) %>% 
+  filter(year >=90 & year <=99) %>% 
+  group_by(RCP, design, type) %>% 
+  summarize(average_2090s = mean(value_aggregate),
+            stdev_2090s = sd(value_aggregate)) %>%
+  mutate(se_2090s = stdev_2090s/sqrt(9))
+
+
+summary_plot_table <- left_join(baseline_decade, end_of_century_decade)
+summary_plot_table <- summary_plot_table %>% 
+  mutate(perc_change = (average_2090s - average_2000s)/ average_2000s * 100)
+
+summary_table_revenue1 <- average_fleet_data %>% 
+  group_by(RCP, design, year, type) %>% 
+  summarize(value_aggregate = sum(value)) %>% 
+  filter(year <= 9) %>% 
+  group_by(RCP, design, type) %>% 
+  summarize(average_2000s = mean(value_aggregate),
+            stdev_2000s = sd(value_aggregate)) %>%
+  mutate(se_2000s = stdev_2000s/sqrt(10))
+
+summary_table_revenue2 <- average_fleet_data %>% 
+  group_by(RCP, design, year, type) %>% 
+  summarize(value_aggregate = sum(value)) %>% 
+  filter(year >=90 & year <=99) %>% 
+  group_by(RCP, design, type) %>% 
+  summarize(average_2090s = mean(value_aggregate),
+            stdev_2090s = sd(value_aggregate)) %>%
+  mutate(se_2090s = stdev_2090s/sqrt(9))
+
+
+
+summary_table_temp_baseline <- baseline_decade %>% gather(key= variable, value=value, -RCP, -type, -design)
+summary_table_temp_end_of_century <- end_of_century_decade %>% gather(key= variable, value=value, -RCP, -type, -design)
+summary_table_temp <- rbind(summary_table_temp_baseline, summary_table_temp_end_of_century)
+summary_table_temp$type <- gsub(summary_table_temp$type, pattern=".*_", replacement="")
+summary_table_temp$year <- gsub(summary_table_temp$variable, pattern=".*_", replacement="")
+summary_table_temp$variable <- gsub(summary_table_temp$variable, pattern="_.*", replacement="")
+summary_table_temp$aggregate <- paste(summary_table_temp$RCP, summary_table_temp$design, summary_table_temp$year, sep="/")
+summary_table_temp$label <- paste(summary_table_temp$design, summary_table_temp$year, sep=" ")
+
+spread <- summary_table_temp %>%
+  filter(variable != "se")  %>%
+  spread(key=variable, value=value)
+
+summary_table_biomass <- spread %>% filter(type=="Biomass")
+summary_table_catch <- spread %>% filter(type=="Catch")
+summary_table_effort <- spread %>% filter(type=="Effort")
+
+
+summary_table_revenue2$year <- "2090s"
+summary_table_revenue2$type <- "Revenue"
+
+colnames(summary_table_revenue2) <- gsub(colnames(summary_table_revenue2), pattern="_2090s", replacement="")
+agg_plot_data <- bind_rows(spread, summary_table_revenue2)
+
+
+test_data <- average_data %>% 
+  group_by(RCP, design, type, year) %>% 
+  summarize(value_aggregate = sum(value)) %>% 
+  
+  filter(year >=90 & year <=99 & RCP=="RCP8.5")
+test_data$design <- fct_relevel(test_data$design, "NoMPA", after=0)
+linmod_biomass <- lm(value_aggregate ~ design, 
+                     data=test_data %>% filter(type=="Average_Biomass"))
+linmod_catch <- lm(value_aggregate ~ design, 
+                   data=test_data %>% filter(type=="Average_Catch"))
+# summary(linmod_biomass)
+# summary(linmod_catch)
+
+test_data_revenue <- average_fleet_data %>% 
+  filter(year >=90 & year <=99 & RCP=="RCP8.5") %>% 
+  group_by(RCP, design, year, type) %>% 
+  summarize(value_aggregate = sum(value))
+test_data_revenue$design <- fct_relevel(test_data_revenue$design, "NoMPA", after=0)
+test_data_revenue$design <- fct_relevel(test_data_revenue$design, "MPA_Square_Shifting", after=0)
+test_data_revenue$design <- fct_relevel(test_data_revenue$design, "MPA_Network_Shifting", after=0)
+
+linmod_revenue <- lm(value_aggregate ~ design, 
+                     data=test_data_revenue)
+#linmod_revenue
+
+#summary(linmod_revenue)
+
+mpa_labels$mpa_label <- fct_relevel(mpa_labels$mpa_label, "No MPA", after=6)
+label_df <- tibble(type=c(rep("Biomass", 7), rep("Catch", 7), rep("Revenue", 7)), 
+                   mpa_label = rep(factor(sort(mpa_labels$mpa_label)),3),
+                   average = c(rep(60, 7), rep(4, 7), rep(12, 7)),
+                   label_sig= c("*", "", "**", "***", "", "***", "",
+                                rep("***", 6), "",
+                                rep("***", 6), ""))
+
+output_table_biomass <- summary_table_biomass %>%
+  filter(year=="2090s") %>%
+  mutate(value = paste(round(average, 1), " (", round(stdev,2), ")", sep="")) %>%
+  select(-c( year,aggregate, label, average, stdev)) %>%
+  spread(design, value=value) 
+
+output_table_catch <- summary_table_catch %>%
+  filter(year=="2090s") %>%
+  mutate(value = paste(round(average, 1), " (", round(stdev,2), ")", sep="")) %>%
+  select(-c( year,aggregate, label, average, stdev)) %>%
+  spread(design, value=value) 
+
+output_table_effort <- summary_table_effort %>%
+  filter(year=="2090s") %>%
+  mutate(value = paste(round(average, 1), " (", round(stdev,2), ")", sep="")) %>%
+  select(-c(year,aggregate, label, average, stdev)) %>%
+  spread(design, value=value) 
+
+agg_plot_data %>% 
+  filter(year=="2090s" & RCP=="RCP8.5") %>% 
+  left_join(mpa_labels) %>% 
+  ggplot(aes(x=mpa_label, y=average, fill=type)) +
+  geom_col() +
+  geom_errorbar(aes(x=mpa_label, ymin=average-(stdev*1.96), ymax=average+(stdev*1.96))) + 
+  coord_flip() + 
+  xlab("MPA design") + 
+  ylab(expression(paste("Tonnes / km"^2, "                          Tonnes / km"^2, "                             $ / km"^2))) +
+  #ylab(expression("Tonnes km"^2 , "Tonnes / km"^2 , "$ / km"^2)) +
+  theme(legend.position = "None") + 
+  facet_wrap(~type, scales="free_x") + 
+  geom_text(data=label_df, aes(x=mpa_label, y=average, label=label_sig)) + 
+  NULL
+ggsave("./VisualOutputs/AggregateResultsBarPlotRCP85_EndOfCentury.png", dpi=600)
+
+
+
+```
